@@ -1,4 +1,3 @@
-# backend.py
 from models import (
     add_warehouse_item, update_warehouse_item, delete_warehouse_item, get_warehouse_items,
     add_builderdistributor_item, update_builderdistributor_item, delete_builderdistributor_item, get_builderdistributor_items,
@@ -7,7 +6,7 @@ from models import (
     log_transaction, log_cashbook_entry, get_transactions, get_cashbook
 )
 
-# --- Warehouse Logic ---
+# ---------- Warehouse Logic ----------
 def warehouse_add(name, price_ksh, stock, measurement):
     return add_warehouse_item(name, price_ksh, stock, measurement)
 
@@ -21,7 +20,7 @@ def warehouse_delete(name):
 def warehouse_list():
     return get_warehouse_items()
 
-# --- BuilderDistributors Logic ---
+# ---------- BuilderDistributors Logic ----------
 def builderdistributor_add(name, price_ksh, stock, measurement):
     return add_builderdistributor_item(name, price_ksh, stock, measurement)
 
@@ -35,7 +34,7 @@ def builderdistributor_delete(name):
 def builderdistributor_list():
     return get_builderdistributor_items()
 
-# --- Inventory Logic (retail/wholesale catalog) ---
+# ---------- Inventory Logic (retail/wholesale catalog) ----------
 def inventory_add(name, price_ksh, stock, category, measurement):
     return add_inventory_item(name, price_ksh, stock, category, measurement)
 
@@ -49,7 +48,7 @@ def inventory_delete(name):
     delete_inventory_item(name)
     return {"status": "deleted", "name": name}
 
-# --- Transfer Logic ---
+# ---------- Transfer Logic ----------
 def transfer_item(name, qty, initiated_by=None):
     return transfer_stock(name, qty, initiated_by=initiated_by)
 
@@ -60,26 +59,34 @@ def transfer_delete(transfer_id):
 def transfer_list():
     return get_transfers()
 
-# --- Buying Logic ---
+# ---------- Buying Logic ----------
 def buy_item(user_email, item_name, qty):
-    # Find item in inventory (retail/wholesale)
     items = inventory_list()
     item = next((i for i in items if i["name"] == item_name), None)
     if not item:
         return {"error": "Item not found"}
     if item.get("stock", 0) < qty:
         return {"error": "Insufficient stock"}
+
     # decrement stock
     inventory_edit(item_name, {"stock": item["stock"] - qty})
     cost = item["price_ksh"] * qty
-    # log transaction and cashbook
-    log_transaction(user_email, f"Bought {qty} x {item_name} ({item.get('measurement')})", cost)
-    log_cashbook_entry("Expense", cost, f"Sale of {qty} x {item_name}")
-    return {"success": True, "item": item_name, "qty": qty, "cost_ksh": cost}
 
-# --- Reports ---
+    # classify wholesale vs retail
+    sale_type = item.get("category", "retail")
+    message = f"Bought {qty} x {item_name} ({item.get('measurement')}) [{sale_type}]"
+
+    # log transaction and cashbook
+    log_transaction(user_email, message, cost)
+    log_cashbook_entry("Expense", cost, f"Sale of {qty} x {item_name} ({sale_type})")
+
+    return {"success": True, "item": item_name, "qty": qty, "cost_ksh": cost, "type": sale_type}
+
+# ---------- Reports ----------
 def recent_transactions(limit=50):
     return get_transactions(limit)
 
 def recent_cashbook(limit=50):
     return get_cashbook(limit)
+ 
+ 

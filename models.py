@@ -51,7 +51,7 @@ def update_user(email: str, updates: dict):
         user.pop("password", None)
     return user
 
-# --- Inventory (catalog: retail / wholesale) ---
+# --- Inventory (retail / wholesale catalog) ---
 def add_inventory_item(name: str, price_ksh, stock, category: str, measurement: str):
     col = get_inventory_collection()
     if category not in ("retail", "wholesale"):
@@ -90,7 +90,7 @@ def delete_inventory_item(name: str):
     res = get_inventory_collection().delete_one({"name": name})
     return {"deleted_count": res.deleted_count}
 
-# --- Warehouse (incoming stock) ---
+# --- Warehouse ---
 def add_warehouse_item(name: str, price_ksh, stock, measurement: str):
     col = get_warehouse_collection()
     price = _to_int(price_ksh, "price_ksh")
@@ -111,22 +111,19 @@ def add_warehouse_item(name: str, price_ksh, stock, measurement: str):
 def get_warehouse_items():
     return list(get_warehouse_collection().find())
 
-def get_warehouse_item_by_name(name: str):
-    return get_warehouse_collection().find_one({"name": name})
-
 def update_warehouse_item(name: str, updates: dict):
     if "price_ksh" in updates:
         updates["price_ksh"] = _to_int(updates["price_ksh"], "price_ksh")
     if "stock" in updates:
         updates["stock"] = _to_int(updates["stock"], "stock")
     get_warehouse_collection().update_one({"name": name}, {"$set": updates})
-    return get_warehouse_item_by_name(updates.get("name", name))
+    return get_warehouse_collection().find_one({"name": name})
 
 def delete_warehouse_item(name: str):
     res = get_warehouse_collection().delete_one({"name": name})
     return {"deleted_count": res.deleted_count}
 
-# --- BuilderDistributors (outgoing / retail partners) ---
+# --- BuilderDistributors ---
 def add_builderdistributor_item(name: str, price_ksh, stock, measurement: str):
     col = get_builderdistributors_collection()
     price = _to_int(price_ksh, "price_ksh")
@@ -147,22 +144,19 @@ def add_builderdistributor_item(name: str, price_ksh, stock, measurement: str):
 def get_builderdistributor_items():
     return list(get_builderdistributors_collection().find())
 
-def get_builderdistributor_item_by_name(name: str):
-    return get_builderdistributors_collection().find_one({"name": name})
-
 def update_builderdistributor_item(name: str, updates: dict):
     if "price_ksh" in updates:
         updates["price_ksh"] = _to_int(updates["price_ksh"], "price_ksh")
     if "stock" in updates:
         updates["stock"] = _to_int(updates["stock"], "stock")
     get_builderdistributors_collection().update_one({"name": name}, {"$set": updates})
-    return get_builderdistributor_item_by_name(updates.get("name", name))
+    return get_builderdistributors_collection().find_one({"name": name})
 
 def delete_builderdistributor_item(name: str):
     res = get_builderdistributors_collection().delete_one({"name": name})
     return {"deleted_count": res.deleted_count}
 
-# --- Transfers (warehouse -> builderdistributors) ---
+# --- Transfers ---
 def transfer_stock(name: str, qty, initiated_by: str = None):
     qty = _to_int(qty, "qty")
     wh_col = get_warehouse_collection()
@@ -175,10 +169,7 @@ def transfer_stock(name: str, qty, initiated_by: str = None):
     if wh.get("stock", 0) < qty:
         raise ValueError("Insufficient warehouse stock")
 
-    # decrement warehouse
     wh_col.update_one({"name": name}, {"$inc": {"stock": -qty}})
-
-    # increment or create builderdistributor record
     bd = bd_col.find_one({"name": name})
     if bd:
         bd_col.update_one({"name": name}, {"$inc": {"stock": qty}})
@@ -192,7 +183,6 @@ def transfer_stock(name: str, qty, initiated_by: str = None):
         }
         bd_col.insert_one(bd_doc)
 
-    # log transfer
     transfer_doc = {
         "name": name,
         "qty": qty,
@@ -206,14 +196,11 @@ def get_transfers():
     return list(get_transfers_collection().find())
 
 def delete_transfer_record(transfer_id: str):
-    try:
-        oid = ObjectId(transfer_id)
-    except Exception:
-        raise ValueError("Invalid transfer id")
+    oid = ObjectId(transfer_id)
     res = get_transfers_collection().delete_one({"_id": oid})
     return {"deleted_count": res.deleted_count}
 
-# --- Transactions & Cashbook (financial traceability) ---
+# --- Transactions & Cashbook ---
 def log_transaction(user_email: str, message: str, amount):
     amount = _to_int(amount, "amount")
     doc = {
@@ -228,8 +215,20 @@ def log_transaction(user_email: str, message: str, amount):
 def get_transactions(limit: int = 50):
     return list(get_transactions_collection().find().sort("date", -1).limit(_to_int(limit, "limit")))
 
+def update_transaction(tx_id: str, updates: dict):
+    oid = ObjectId(tx_id)
+    if "amount" in updates:
+        updates["amount"] = _to_int(updates["amount"], "amount")
+    get_transactions_collection().update_one({"_id": oid}, {"$set": updates})
+    return get_transactions_collection().find_one({"_id": oid})
+
+def delete_transaction(tx_id: str):
+    oid = ObjectId(tx_id)
+    res = get_transactions_collection().delete_one({"_id": oid})
+    return {"deleted_count": res.deleted_count}
+
 def log_cashbook_entry(entry_type: str, amount, note: str):
-    if entry_type not in ("Income", "Expense", "income", "expense"):
+    if entry_type.lower() not in ("income", "expense"):
         raise ValueError("entry_type must be 'Income' or 'Expense'")
     amount = _to_int(amount, "amount")
     doc = {
